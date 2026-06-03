@@ -1,6 +1,6 @@
 # worktree-flow
 
-> `claude -w` 多 Agent 并行开发。每个 Agent 在独立 worktree 编码，改动自动同步到主目录集中调试。告别重复依赖安装与端口冲突。
+> `claude -w` 多 Agent 并行开发。每个 Agent 在独立 worktree 编码，改动自动同步到主目录集中调试。告别重复依赖安装、端口冲突与中间件浪费。
 
 ## 痛点
 
@@ -8,33 +8,38 @@
 
 **1. 重复安装依赖**
 
-每个 worktree 都得跑一遍 `npm install` / `pnpm install`。node_modules 动辄几百 MB，磁盘浪费 + 安装等待，切一个分支拖几分钟。
+前端：每个 worktree 跑一遍 `npm install` / `pnpm install`，node_modules 动辄几百 MB。
 
-**2. 重复启动 Dev Server**
+后端：每个 worktree 跑 `pip install` / `go mod download` / `cargo build` / `mvn install`，依赖和编译缓存同样白白重复。
 
-每个 worktree 需要单独 `npm run dev` 启动开发服务器。必须改造原项目的端口配置（3000 → 3001 → 3002…），每次新增 worktree 都要手动调整，配置文件改来改去容易漏。
+磁盘浪费 + 安装等待，每开一个 Agent 拖几分钟。
 
-**3. 微前端端口爆炸**
+**2. 重复启动服务**
 
-微前端项目（Module Federation、qiankun、single-spa 等）每个子应用独立一个 dev server。碰上 worktree 分支开发，端口数量翻倍——主分支一套 + worktree 一套，占用多、配置乱、心智负担重。
+每个 worktree 需要独立启动开发服务器。前端要改端口配置（3000 → 3001 → 3002…），后端则要改 FastAPI/Spring Boot 端口（8001 → 8002…），更麻烦的是数据库、Redis、消息队列等中间件也得各起一套或反复切换配置。配置文件改来改去容易漏。
+
+**3. 微前端 / 微服务端口爆炸**
+
+微前端项目（Module Federation 等）每个子应用独立 dev server。微服务项目同理——每个服务自带端口。碰上 worktree 分支开发，端口数量再翻倍。占用多、配置乱、心智负担重。
 
 ## 方案
 
-**所有 worktree 的代码改动自动同步到主目录，你在主目录统一调试。**
+**所有 worktree 的代码改动自动同步到主目录，你在主目录统一调试。中间件也只需在主目录启动一次。**
 
 ```
-┌─────────────────────────────────────────────────┐
-│                 主目录 (main)                      │
-│  node_modules ✅   dev server ✅  端口 ✅         │
-│                                                   │
-│  ┌──────────────┐  ┌──────────────┐              │
-│  │  feature/a    │  │  bugfix/b    │  ← 同步代码  │
-│  └──────┬───────┘  └──────┬───────┘              │
-│         │                 │                       │
-│         ▼                 ▼                       │
-│    worktree/a        worktree/b                   │
-│    (git branch)      (git branch)                 │
-└─────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────┐
+│                 主目录 (main)                          │
+│  node_modules ✅   dev server ✅  端口 ✅              │
+│  DB / Redis / MQ ✅  (全局只用一套)                     │
+│                                                       │
+│  ┌──────────────┐  ┌──────────────┐                  │
+│  │  feature/a    │  │  bugfix/b    │  ← 同步代码      │
+│  └──────┬───────┘  └──────┬───────┘                  │
+│         │                 │                           │
+│         ▼                 ▼                           │
+│    worktree/a        worktree/b                       │
+│    (git branch)      (git branch)                     │
+└─────────────────────────────────────────────────────┘
 ```
 
 只需 3 个命令 + `claude -w`：
@@ -46,7 +51,7 @@
 | `/worktree sync` | 同步：把当前 worktree 的改动合并到主目录 |
 | `/worktree reject` | 回滚：放弃主目录本地改动，恢复到远端主分支状态 |
 
-**一个 dev server，N 个 Agent，所有代码汇聚调试。**
+**一个 dev server / 一套中间件，N 个 Agent，所有代码汇聚调试。**
 
 ## 安装
 
@@ -67,6 +72,8 @@ claude -w                 # 自动创建 worktree + 启动 Agent
 ```
 
 安装脚本会自动处理 WSL 路径兼容。
+
+> **后端同样适用**：Go、Python、Java、Rust、Node.js 后端项目痛点完全一致——依赖重装慢、端口配置乱、中间件多开成本高。worktree-flow 让所有 Agent 共享主目录的编译缓存、开发服务和数据库/Redis/MQ 等基础设施，sync 代码后统一验证，省时省心。
 
 ## 核心命令
 
@@ -183,12 +190,17 @@ Agent 中自由编码，不影响主目录。
 /worktree sync
 ```
 
-改动通过 patch 合并到主目录。之后在主目录：
+改动通过 patch 合并到主目录。之后在主目录统一验证：
 
 ```bash
-npm run dev     # 统一 dev server，直接看效果
-# 或
-npm run test    # 统一跑测试
+# 前端
+npm run dev         # 统一 dev server，直接看效果
+npm run test        # 统一跑测试
+
+# 后端
+uvicorn main:app    # FastAPI 统一启动
+./mvnw spring-boot:run  # Spring Boot
+docker compose up   # 中间件（DB / Redis / MQ）只需一套
 ```
 
 ---
@@ -285,8 +297,10 @@ npm run test    # 统一跑测试
 | | 传统 worktree 开发 | + worktree-flow |
 |---|---|---|
 | 依赖安装 | 每个 worktree 单独装 | 主目录装一次即可 |
+| 编译缓存 | 各 worktree 各自编译，缓存不共享 | 主目录编译缓存全局共享 |
 | Dev Server | 每个 worktree 各自启动，需改造端口逻辑 | 主目录统一启动 |
-| 微前端端口 | main + worktree 双倍端口占用 | 只需主目录一套端口 |
+| 中间件（DB/Redis/MQ） | 各 worktree 各起一套或反复改配置 | 主目录一套，所有 Agent 共享 |
+| 微前端 / 微服务端口 | main + worktree 双倍端口占用 | 只需主目录一套端口 |
 | 多 Agent | 各自目录各自跑，没法集中验证 | N 个 `claude -w` 同步到主目录统一验证 |
 | 学习成本 | 记住 git worktree 全套命令 | 记住 `claude -w` + 3 个命令就够了 |
 
