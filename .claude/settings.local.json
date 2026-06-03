@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(chmod +x *)",
+      "Bash(bash -n E:/work/web/worktree-flow/scripts/worktree-flow.sh)",
+      "Bash(bash *)"
+    ]
+  }
+}
