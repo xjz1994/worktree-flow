@@ -247,15 +247,10 @@ cmd_init() {
   local root
   root="$(git rev-parse --show-toplevel 2>/dev/null)" || die "not in a git repository"
 
-  local current_branch
-  current_branch="$(git rev-parse --abbrev-ref HEAD)"
-  [ "$current_branch" != "HEAD" ] || die "detached HEAD — cannot init"
-
-  # Check upstream tracking
-  local upstream
-  upstream="$(git rev-parse --abbrev-ref --symbolic-full-name "${current_branch}@{u}" 2>/dev/null || true)"
-  [ -n "$upstream" ] || die "no upstream tracking branch for '$current_branch' (need origin/$current_branch)"
-  [[ "$upstream" == origin/* ]] || die "upstream must be origin, got '$upstream'"
+  # Resolve default branch from origin/HEAD or fallback to main
+  local main_branch
+  main_branch="$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|^refs/remotes/origin/||' || true)"
+  [ -n "$main_branch" ] || main_branch="main"
 
   local repo_name
   repo_name="$(basename "$root")"
@@ -263,8 +258,8 @@ cmd_init() {
   local cfg
   cfg="$(main_config_path)"
 
-  save_config "$cfg" "$current_branch" "$root" "$repo_name"
-  info "init complete: mainBranch=$current_branch  mainDir=$root  repoName=$repo_name"
+  save_config "$cfg" "$main_branch" "$root" "$repo_name"
+  info "init complete: mainBranch=$main_branch  mainDir=$root  repoName=$repo_name"
 }
 
 cmd_sync() {
