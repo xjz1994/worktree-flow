@@ -1,10 +1,10 @@
 # worktree-flow
 
-> 用 Git worktree 并行开发，在主目录集中调试，告别重复依赖安装与端口冲突。
+> `claude -w` 多 Agent 并行开发。每个 Agent 在独立 worktree 编码，改动自动同步到主目录集中调试。告别重复依赖安装与端口冲突。
 
 ## 痛点
 
-前端项目用 Git worktree 做多分支并行开发时，每个 worktree 都是独立的工作目录，带来三个麻烦：
+用 Claude Code 做多 Agent 并行开发时，每个 Agent 默认在独立工作目录，带来三个麻烦：
 
 **1. 重复安装依赖**
 
@@ -37,15 +37,16 @@
 └─────────────────────────────────────────────────┘
 ```
 
-只需 3 个命令：
+只需 3 个命令 + `claude -w`：
 
 | 命令 | 作用 |
 |------|------|
-| `init` | 初始化：记录主分支路径，后续同步以此为基准 |
-| `sync` | 同步：把当前 worktree 的改动合并到主目录 |
-| `reject` | 回滚：放弃主目录本地改动，恢复到远端主分支状态 |
+| `claude -w` | 启动新 Agent，自动创建独立的 git worktree |
+| `/worktree init` | 初始化：记录主分支路径，后续同步以此为基准 |
+| `/worktree sync` | 同步：把当前 worktree 的改动合并到主目录 |
+| `/worktree reject` | 回滚：放弃主目录本地改动，恢复到远端主分支状态 |
 
-**一次安装，一次启动，所有分支共享。**
+**一个 dev server，N 个 Agent，所有代码汇聚调试。**
 
 ## 安装
 
@@ -56,8 +57,13 @@ git clone <repo-url>
 # 一步安装到 Claude Code 命令目录
 bash install.sh
 
-# 在 Claude Code 中使用
+# 主目录初始化
+claude                    # 启动 Claude Code
+# 在 Claude Code 中执行
 /worktree init
+
+# 新终端启动 worktree Agent（多 Agent 并行）
+claude -w                 # 自动创建 worktree + 启动 Agent
 ```
 
 安装脚本会自动处理 WSL 路径兼容。
@@ -125,52 +131,47 @@ bash install.sh
 ### 基础流程（4 步）
 
 ```
-  终端 1 (主目录)             终端 2 (worktree)
-  ┌──────────────┐           ┌──────────────────┐
-  │ claude        │           │ claude -w         │
-  │ /worktree init│           │ (自动创建 worktree)│
-  │               │           │ coding...         │
-  │               │◄──sync───│ /worktree sync     │
-  │ npm run dev   │           │                   │
-  │ 调试验收       │           │                   │
-  │               │           │                   │
-  │ /worktree     │           │                   │
-  │   reject      │           │                   │
-  │ (不符合预期时) │           │                   │
-  └──────────────┘           └──────────────────┘
+  终端 1 (主目录)                终端 2 (worktree Agent)
+  ┌──────────────┐              ┌──────────────────────┐
+  │ claude        │              │ claude -w             │
+  │ /worktree init│              │ (自动创建 worktree)    │
+  │               │              │ coding on feature/a   │
+  │               │◄──sync──────│ /worktree sync         │
+  │ npm run dev   │              │                       │
+  │ 集中调试验收   │              │ 终端 3 (worktree Agent)
+  │               │              │ ├── claude -w          │
+  │ /worktree     │              │ └── /worktree sync     │
+  │   reject      │              └──────────────────────┘
+  │ (不符合预期)   │
+  └──────────────┘
 ```
 
 **Step 1 — 主目录初始化**
+
+在项目根目录启动 Claude Code：
 
 ```bash
 cd my-project
 claude
 ```
 
-在 Claude Code 中执行：
-
-```
-/worktree init
-```
-
-记录远端默认分支和路径信息到配置文件，后续同步以此为基准。
+执行 `/worktree init`，记录主分支路径。**只需一次。**
 
 ---
 
-**Step 2 — 开启新 Agent（worktree）**
+**Step 2 — 启动 worktree Agent**
 
 ```bash
-# 新终端，-w 自动创建 git worktree
 claude -w
 ```
 
-`claude -w` 会自动：
+`claude -w` 自动：
 
-- 基于主分支创建新的 git worktree（隔离的工作目录）
-- 在新目录中启动 Claude Code 会话
-- 新目录自动和主目录共享 node_modules（如果配置好 monorepo 或 symlink）
+- 基于主分支创建 git worktree（隔离工作目录）
+- 在新目录启动 Claude Code 会话
+- 多个 `claude -w` 可同时运行，互不干扰
 
-在此 Agent 中自由修改代码，不影响主目录。
+Agent 中自由编码，不影响主目录。
 
 ---
 
@@ -203,28 +204,28 @@ npm run test    # 统一跑测试
 
 ---
 
-### 多任务并行开发
+### 多 Agent 并行开发
 
 ```
 终端 1 (主目录)
 ├── claude
 │   /worktree init
-│   npm run dev          ← 统一 dev server
+│   npm run dev          ← 统一 dev server，接收所有 Agent 代码
 │
-终端 2 (Agent A)
-├── claude -w            ← 自动 worktree: feature/login
+终端 2 (Agent A: feature/login)
+├── claude -w
 │   coding...
-│   /worktree sync       ← 改动→主目录
+│   /worktree sync       ← 同步到主目录
 │
-终端 3 (Agent B)
-├── claude -w            ← 自动 worktree: feature/payment
+终端 3 (Agent B: feature/payment)
+├── claude -w
 │   coding...
-│   /worktree sync       ← 改动→主目录
+│   /worktree sync       ← 同步到主目录
 │
-终端 4 (Agent C)
-├── claude -w            ← 自动 worktree: bugfix/header
+终端 4 (Agent C: bugfix/header)
+├── claude -w
 │   coding...
-│   /worktree sync       ← 改动→主目录
+│   /worktree sync       ← 同步到主目录
 ```
 
 每个 `claude -w` 启动一个独立 Agent，各自在隔离的 worktree 中工作。完成一部分就 `/worktree sync` 把代码送回主目录，主目录的 dev server 立刻包含所有改动，集中验证。
@@ -235,8 +236,9 @@ npm run test    # 统一跑测试
 
 ```bash
 /worktree reject          # 主目录回退到远端分支状态
-# 然后删除 worktree（在 Claude Code 外部执行）
-claude -w 的 worktree 退出时可选删除
+# worktree 退出时可选删除
+# 已完成的 worktree 放心删除，不影响主目录
+# 继续新任务？再开一个 claude -w
 ```
 
 ## 配置
@@ -285,8 +287,8 @@ claude -w 的 worktree 退出时可选删除
 | 依赖安装 | 每个 worktree 单独装 | 主目录装一次即可 |
 | Dev Server | 每个 worktree 各自启动，需改造端口逻辑 | 主目录统一启动 |
 | 微前端端口 | main + worktree 双倍端口占用 | 只需主目录一套端口 |
-| 多 Agent | 各自目录各自跑，没法集中验证 | sync 汇聚到主目录统一验证 |
-| 学习成本 | 记住 git worktree 全套命令 | 记住 3 个命令就够了 |
+| 多 Agent | 各自目录各自跑，没法集中验证 | N 个 `claude -w` 同步到主目录统一验证 |
+| 学习成本 | 记住 git worktree 全套命令 | 记住 `claude -w` + 3 个命令就够了 |
 
 ## License
 
